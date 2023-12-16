@@ -1,0 +1,298 @@
+# -*- coding: utf-8-unix; lexical-binding: t; -*-
+#+TITLE: 并行 I​/​O 密集型任务的最佳线程数
+#+AUTHOR: [[https://github.com/shynur][/谢骐/]]
+#+LANGUAGE: zh-CN
+#+HTML_HEAD: <style> table, th, td {border: 1px solid;} code {box-sizing: border-box; background-color: #F3F5F9; color: #0ABF5B;} </style>
+
+* 引言
+
+在现代计算中, 高效处理大量小文件的读写操作是一个关键挑战, 特别是对于 I​/​O 密集型任务.
+这些任务的性能不仅受 CPU 限制, 还受磁盘 I​/​O 的影响.
+
+在 [[https://shop.fsf.org/books-docs/introduction-command-line][/Introduction to the Command Line/]][fn:: [[https://www.flossmanuals.net][FLOSS Manuals]] & [[https://www.fsf.org][the FSF]]: [[https://archive.flossmanuals.net/command-line/installing-software.html][Compile the software]]] 一书中提到:
+
+#+BEGIN_QUOTE
+If you have several processors or processor cores, you can use multiple jobs to speed up processing by adding a =-j= option:
+
+#+BEGIN_SRC bash  :eval never
+$ make -j3
+#+END_SRC
+
+\hellip \hellip
+
+\hellip, =-j3= tells ~make~ to try to run \( 3 \) compilation processes simultaneously, which will allow you to utilize processor resources better if you have a dual-core or bigger machine.
+The number after =-j= is arbitrary, but a good rule of thumb is *the number of processor cores plus one*.
+#+END_QUOTE
+
+I.e., <<经验法则>> _对于​/可并行的 I​/​O 密集型任务/, 使用的​*线程数应该超过处理器核心数*​._
+
+本研究旨在通过实验验证这一[[经验法则][经验法则]].
+通过 C++ 调用 OpenMP, 在多种线程配置下执行基准测试, 探究线程数量对大量小文件磁盘 I​/​O 操作性能的影响, 以求取 I​/​O 密集型任务的最佳线程数目, 指导性能优化的实践.
+
+* 技术与理论背景
+
+本章节将简要介绍与研究直接相关的技术和理论基础.
+这​/可能/​从理论上证明[[*引言][引言]]中[[经验法则][经验法则]]的正确性, 并指导后续的[[*设计思路][实验方案的设计]].
+
+** CPU 与磁盘的性能对比
+
+在处理可并行的 I​/​O 密集型任务时, 理解 CPU 和 磁盘 I​/​O 之间的性能差异至关重要.
+差异主要体现在
+
+- 处理速度
+- 数据吞吐量
+- 并行处理能力
+
+这三个方面.
+
+简而言之,
+
+#+BEGIN_CENTER
+CPU 在处理数据和并行能力上远超磁盘, 导致在 I​/​O 密集型任务中, 磁盘读写的性能成为了系统的瓶颈.
+#+END_CENTER
+
+因此, 合理地利用线程​_在等待 CPU 与磁盘之间的 I​/​O 处理的那段时间_, 对于提高程序性能至关重要.
+
+*** 速度与吞吐量
+
+根据本节的对比, 我们将会发现 CPU 的高速运算能力在等待数据传输的过程中无法充分发挥.
+
+**** CPU 性能
+
+现代 CPU 由于其复杂的内部结构 (e.g., 多级缓存, 多核处理器, 和超线程技术), 在处理​/计算密集型任务/​时表现出色.
+一些常见的 CPU 操作 (e.g., 整数加法 和 浮点运算) 的执行时间通常在几个纳秒到几十个纳秒之间[fn:: /Agner Fog/: [[https://www.agner.org/optimize/instruction_tables.pdf][Instruction Tables]], 2023].
+这意味着 CPU 可以在一秒内执行数十亿次这类操作.
+
+CPU 的数据吞吐量指的是在单位时间内能处理的数据量, 这个指标受多种因素影响, 包括 CPU 的核心数, 缓存大小, 以及内存带宽等.
+随着 DDR4 和 DDR5 等新一代内存技术的推出, 内存带宽得到了显著提升: DDR4 内存的数据传输速率可达到 \( 21.3 \text{GB/s} \), 而 DDR5 则有望达到 \( 51.2 \text{GB/s} \).
+如果磁盘等外设的数据传输速率过低, 则会导致程序中的线程产生大量的空闲时间.
+
+**** 磁盘性能
+
+磁盘 I​/​O 操作的速度远低于 CPU.
+其读写速度受到磁盘类型 (e.g., HDD, SSD), 接口 (e.g., SATA, NVMe), 和文件系统等因素的影响.
+一般的 HDD 的顺序读写速度约为 \( 100-200 \text{MB/s} \); 高性能 SSD 普遍可以达到 \( 500 \text{MB/s} + \) 的速度.  [fn:: [[https://StorageReview.com][StorageReview]]: [[https://www.storagereview.com/ssd-vs-hdd][SSD vs HDD]]]
+
+磁盘的吞吐量是衡量 I​/​O 性能的另一个重要指标.
+磁盘读写操作涉及到机械移动 (在 HDD 中) 或电子切换 (在 SSD 中), 因此它们的响应时间通常以毫秒计算, 与 CPU 操作的纳秒级响应时间相差至少 \(3\) 个数量级.
+
+*** 并行处理能力
+
+现代 CPU 通过多核设计实现了并行处理能力.
+此外, 超线程技术 (Hyper-Threading) 使得​*单个核心能够同时执行多个线程*, 进一步提高了处理效率.
+
+传统的 HDD 由于其物理结构限制, 读写头在执行一个操作时, 进行另一个操作需要重新定位, 只能并发地处理并行 I​/​O 请求, 这会产生极大的延迟.
+SSD 使用闪存单元来存储数据, RAID 通过将多个硬盘组合起来, 它们都可以真正地并行处理多个数据请求.
+
+然而, 虽然 SSD 和 RAID 拥有真正并行处理的能力, 仍不能与 CPU 相比.
+
+** OpenMP 多线程机制
+
+通过[[*CPU 与磁盘的性能对比][上一节]]的对比, 理论上[[经验法则][经验法则]]是合理的.
+然而, 过多的线程可能导致线程上下文切换的开销增加, 从而降低总体性能.
+
+*** 并行模式
+
+根据相关文章[fn:: [[https://github.com/shynur][=shynur=]]: [[https://shynur.github.io/CheatSheets/OpenMP.html][简明 OpenMP: C/C++ 并行计算]]]:
+
+#+BEGIN_QUOTE
+OpenMP 采用 fork-join 的方式进行并行运算:
+
+#+BEGIN_EXAMPLE
+             __    __
+            / _ 并 _ \
+           / /      \ \
+------> FORK -- 行 -- JOIN -->
+主线程     \ \_    _/ /
+            \__ 域 __/
+#+END_EXAMPLE
+
+在这个模型中, 一开始只有一个主线程, 然后主线程遇到相关的命令就会创建多个线程.
+#+END_QUOTE
+
+我们关注影响性能的两点:
+
+- 当程序处于 FORK​/​JOIN 阶段时, 会创建​/​销毁多个线程.
+  创建时需要申请内存资源, 释放时有可能需要整理内存碎片, 这些都耗时较久.
+  后文在实验时, 将计时置于并行域之内, 以排除该干扰项.
+- 机器上存在的线程数几乎必然大于 CPU 的核心数.
+  当单颗核心切换线程时, 会产生极大的开销.
+  它不是干扰项, 因为线程切换是不可避免的, 而本实验主要目的之一, 就是考察如何权衡 多线程处理的优势 和 线程切换的开销.
+
+*** 编程模型
+
+#+BEGIN_SRC C++  :eval never
+  #include <omp.h>
+  int main() {
+  #pragma omp DIRECTIVE [CLAUSE [[, ] CLAUSE] ...]
+      {
+          // 并行域
+      }
+  }
+#+END_SRC
+
+* 实验设计与结果
+** 环境配置
+
+- CPU 核心数: \( 5 \)
+- Fedora GNU​/​Linux
+- GCC 13.2.1
+- OpenMP 4.5
+
+** 设计思路
+
+1. 执行 ~sudo bash -c 'echo 3 > /proc/sys/vm/drop_caches'~ Linux 针对文件系统提供的 buffer.
+2. 向磁盘并行地写入 ~MY_NUM_FILES~ 个小文件.
+3. 清理 buffer; 从磁盘并行地读入 ~MY_NUM_FILES~ 个小文件
+4. 清理 buffer; 从磁盘并行地读入 0.5x​~MY_NUM_FILES~ 个小文件, 同时并行地写入 0.5x​~MY_NUM_FILES~ 个小文件.
+
+实验为了模拟 GNU make 的行为, 设置了 ~MY_AMOUNT_CALC~ 以控制计算量大小.
+该变量的值越大, 每个线程在打开文件之后执行的运算量越大.
+
+#+BEGIN_EXAMPLE
+./
+ |__ 10215102427_XieQi-Parallel_Computing.{org,html,pdf}  (one of which is this file)
+ |
+ |__ GNUmakefile  (testing interface)
+ |
+ |__ a.cpp  (source file)
+#+END_EXAMPLE
+
+在当前目录调用
+ : make
+或
+ : make test
+会输出测试结果, 伴随一个用于读写小文件的文件夹 =./test/=.
+执行
+ : make clean
+以恢复目录结构到初始状态.
+
+** 代码
+
+#+CAPTION: =./GNUmakefile=
+#+INCLUDE: "./GNUmakefile" src makefile-gmake
+
+#+CAPTION: =./a.cpp=
+#+INCLUDE: "./a.cpp" src C++
+
+** 测试
+
+#+BEGIN_SRC bash  :eval query  :exports both table  :dir (file-name-concat "/sudo::" (expand-file-name (file-name-directory (buffer-file-name))))
+MY_NUM_THREADS=9  \
+MY_NUM_FILES=10000  \
+MY_AMOUNT_CALC=100  \
+make
+make clean
+#+END_SRC
+
+#+RESULTS:
+| Num-Threads | O-Time-per-File | I-Time    | IO-Time   |
+|           1 | 99.5324us       | 72.9784us | 80.1102us |
+|           2 | 53.3164us       | 38.1627us | 46.0702us |
+|           3 | 38.7215us       | 28.9921us | 33.8469us |
+|           4 | 31.8808us       | 23.2954us | 27.3944us |
+|           5 | 27.3368us       | 20.6604us | 23.5418us |
+|           6 | 25.8475us       | 17.8479us | 21.0984us |
+|           7 | 24.3816us       | 18.7930us | 21.2713us |
+|           8 | 27.5352us       | 20.1203us | 22.1087us |
+|           9 | 35.6278us       | 25.3981us | 26.3765us |
+
+* 数据分析
+
+第[[*测试]]节中的测试结果为多次实验的中位数.
+其中的每一行以 =线程数 平均写时间 平均读时间 平均读写时间= 的形式展示了不同线程数下程序的耗时 (单位: 微秒).
+
+** 性能上升区间
+
+当测试的线程数从 \( 1 \) 增加到 \( 5 \), 也就是 \[
+\text{线程数} \le \text{核心数}
+\] 时, 线程数越多, 耗时越短.
+这符合可并行程序的一般执行情况: 既然任务是可并行的, 那么就可以在合理范围内增加线程数以提高并行任务数, 缩短执行时间.
+
+但是我们看到, 更多的线程数带来的增益是越来越少的.
+E.g., \( T_{\text{num_threads}=2} \gt \frac12 \cdot T_{\text{num_threads}=1} \), \( T_{\text{num_threads}=3} \gt \frac23 \cdot T_{\text{num_threads}=2} \), etc.
+推测这主要是因为性能瓶颈从 CPU 处理数据, 转到磁盘 I​/​O 上.
+
+无论如何, 在这一区间, 线程数越多, 性能越好.
+
+** 最佳线程数
+
+当 \[
+\text{线程数} \gt \text{核心数}
+\] 时, 性能提升只在线程数略高于核心数时出现.
+
+根据多次测试的结果,
+- 当线程数为 \( 6 \) 或 \( 7 \) 时, 性能比线程数为 \( 5 \)[fn:核心数: 核心数.] 时更好, 但难以断定究竟是 \( 6 \) 更好还是 \( 7 \) 更好,
+- 当线程数为 \( 8 \) 时, 与线程数为 \( 5 \)[fn:核心数] 时对比, 时好时差.
+- 当线程数为 \( 9 \) 时, 性能明显低于线程数为 \( 5 \)[fn:核心数] 的情形, 因此认为从这个数值开始, 逐渐远离峰值.
+
+也即 \[
+P_{\text{num_threads=5}} \lt P_{\text{num_threads=6}} \approx P_{\text{num_threads=7}} \gt P_{\text{num_threads=8}}
+\].
+
+** 归因分析
+
+线程数略高于核心数时, 程序能占满 CPU 的各核心; \\
+_当某线程在等待磁盘 I​/​O 时, 它会 /yield/ 若干个时间片, 而如果此时程序有​*正在执行计算但却被挂起*​的线程, 那么它很可能会 /acquire/ 这些时间片并继续执行._
+
+在 I​/​O 密集型任务中, 程序在 CPU 上的所有线程很可能都在等在磁盘 I​/​O, 此时如果能有一个线程充分利用这段时间执行计算, 必然能够提高性能.
+
+* 结论与建议
+
+根据第[[*最佳线程数]]节的趋势分析, 线程数略高于核心数时就是性能峰值.
+保守起见, 本文建议使用 \( \text{核心数} + 1 \).
+
+在 GNU​/​Linux 上, 使用
+
+#+BEGIN_SRC bash  :eval never
+$ make -j$((`nproc`+1))
+#+END_SRC
+
+即可.
+
+** 经验法则的适用性
+
+本文讨论的是可并行化的程序, 这适用于绝大多数的 =Makefile=.
+但是, 如果程序本身就不可并行 (e.g., 根据 =Makefile= 中的 /recipe/​s 对 /target/​s 进行​拓扑排序, 如果排序结果是唯一的), 那么它等同于串行执行.
+
+如果程序不是 I​/​O 密集型的, 那么性能瓶颈很可能也在磁盘这边, 则[[经验法则][该经验法则]]也就无法提供可观的收益.
+
+** 实验的局限性
+
+本实验采用了低性能的 HDD 而不是高性能的 SSD, 放大了 CPU 性能与磁盘 I​/​O 之间的差距, 从而提高了增加线程数目带来的性能增益.
+实验中关闭了 Linux 针对文件系统提供的 buffer, 在实际应用中很少会这么做.
+
+因此, 如果您的机器不存在上述情况, 那么结果可能有所不同.
+
+* COMMENT File Local Variables
+
+Local Variables:
+eval: (org-num-mode)
+eval: (require 'ob-shell)
+eval: (define-abbrev org-mode-abbrev-table
+        "io" "io"
+        (let ((my/并行计算-期末论文 (current-buffer)))
+          (lambda ()
+            "Convert “io” to “I\N{ZERO WIDTH SPACE}/\N{ZERO WIDTH SPACE}O” which satisfies ‘org-mode’ format."
+            (when (eq (current-buffer) my/并行计算-期末论文)
+              (upcase-word -1)
+              (save-excursion
+                (backward-char)
+                (insert ?\N{ZERO WIDTH SPACE} ?/ ?\N{ZERO WIDTH SPACE}))))))
+eval: (abbrev-mode)
+eval: (electric-quote-local-mode -1)
+eval: (advice-add 'org-html-export-to-html :around
+                  (let ((my/并行计算-期末论文 (current-buffer)))
+                    (lambda (fn &rest args)
+                      "导出时采用浅色主题的配色, 以适应 PDF 的背景色."
+                      (if (eq (current-buffer) my/并行计算-期末论文)
+                          (let ((inhibit-redisplay t)
+                                (using-light-theme? (memq 'modus-operandi custom-enabled-themes)))
+                            (unless using-light-theme?
+                              (load-theme 'modus-operandi))
+                            (prog1 (apply fn args)
+                              (unless using-light-theme?
+                                (disable-theme 'modus-operandi))))
+                        (apply fn args))))
+                  '((name . "~shynur/Desktop/SchoolWork/并行计算")))
+End:
