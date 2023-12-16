@@ -141,7 +141,7 @@ OpenMP 采用 fork-join 的方式进行并行运算:
 
 ** 设计思路
 
-1. 执行 ~sudo bash -c 'echo 3 > /proc/sys/vm/drop_caches'~ Linux 针对文件系统提供的 buffer.
+1. 执行 ~sudo bash -c 'echo 3 > /proc/sys/vm/drop_caches'~ 以清理 Linux 针对文件系统提供的 buffer.
 2. 向磁盘并行地写入 ~MY_NUM_FILES~ 个小文件.
 3. 清理 buffer; 从磁盘并行地读入 ~MY_NUM_FILES~ 个小文件
 4. 清理 buffer; 从磁盘并行地读入 0.5x​~MY_NUM_FILES~ 个小文件, 同时并行地写入 0.5x​~MY_NUM_FILES~ 个小文件.
