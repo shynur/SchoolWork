@@ -3,7 +3,7 @@
 "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" lang="zh-CN" xml:lang="zh-CN">
 <head>
-<!-- 2023-12-16 周六 21:29 -->
+<!-- 2023-12-16 周六 21:41 -->
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>并行 I​/​O 密集型任务的最佳线程数</title>
@@ -234,42 +234,42 @@
 <h2>&#30446;&#24405;</h2>
 <div id="text-table-of-contents" role="doc-toc">
 <ul>
-<li><a href="#orgc08d367">1. 引言</a></li>
-<li><a href="#orgdb4ddec">2. 技术与理论背景</a>
+<li><a href="#orgb45ab15">1. 引言</a></li>
+<li><a href="#org8a5d770">2. 技术与理论背景</a>
 <ul>
-<li><a href="#orgc33d00e">2.1. CPU 与磁盘的性能对比</a>
+<li><a href="#orgfcf414e">2.1. CPU 与磁盘的性能对比</a>
 <ul>
-<li><a href="#org5b221ad">2.1.1. 速度与吞吐量</a></li>
-<li><a href="#orgaa68d36">2.1.2. 并行处理能力</a></li>
+<li><a href="#org14d88ef">2.1.1. 速度与吞吐量</a></li>
+<li><a href="#org594fe67">2.1.2. 并行处理能力</a></li>
 </ul>
 </li>
-<li><a href="#orgbd5de70">2.2. OpenMP 多线程机制</a>
+<li><a href="#orgcb46b9d">2.2. OpenMP 多线程机制</a>
 <ul>
-<li><a href="#orgcf7dbb6">2.2.1. 并行模式</a></li>
-<li><a href="#orgad60e2e">2.2.2. 编程模型</a></li>
+<li><a href="#orgf10dc5d">2.2.1. 并行模式</a></li>
+<li><a href="#orga520f70">2.2.2. 编程模型</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a href="#orgcad3eab">3. 实验设计与结果</a>
+<li><a href="#org9afa006">3. 实验设计与结果</a>
 <ul>
-<li><a href="#org078978a">3.1. 环境配置</a></li>
-<li><a href="#orgd05e236">3.2. 设计思路</a></li>
-<li><a href="#orgb98b402">3.3. 代码</a></li>
-<li><a href="#org663c8f1">3.4. 测试</a></li>
+<li><a href="#orgf84db9f">3.1. 环境配置</a></li>
+<li><a href="#orgf02037b">3.2. 设计思路</a></li>
+<li><a href="#org5206c17">3.3. 代码</a></li>
+<li><a href="#orgc584ec8">3.4. 测试</a></li>
 </ul>
 </li>
-<li><a href="#orga4f1555">4. 数据分析</a>
+<li><a href="#org0a70bea">4. 数据分析</a>
 <ul>
-<li><a href="#orgc140d82">4.1. 性能上升区间</a></li>
-<li><a href="#orgec8790b">4.2. 最佳线程数</a></li>
-<li><a href="#org570cc68">4.3. 归因分析</a></li>
+<li><a href="#org6b472a6">4.1. 性能上升区间</a></li>
+<li><a href="#org445d11a">4.2. 最佳线程数</a></li>
+<li><a href="#org1cb6cfd">4.3. 归因分析</a></li>
 </ul>
 </li>
-<li><a href="#org968203a">5. 结论与建议</a>
+<li><a href="#orgec29a4d">5. 结论与建议</a>
 <ul>
-<li><a href="#orgf53ef17">5.1. 经验法则的适用性</a></li>
-<li><a href="#org9ede500">5.2. 实验的局限性</a></li>
+<li><a href="#orgbc6c438">5.1. 经验法则的适用性</a></li>
+<li><a href="#org3dfefbb">5.2. 实验的局限性</a></li>
 </ul>
 </li>
 </ul>
@@ -278,8 +278,8 @@
 <p>
 
 </p>
-<div id="outline-container-orgc08d367" class="outline-2">
-<h2 id="orgc08d367"><span class="section-number-2">1.</span> 引言</h2>
+<div id="outline-container-orgb45ab15" class="outline-2">
+<h2 id="orgb45ab15"><span class="section-number-2">1.</span> 引言</h2>
 <div class="outline-text-2" id="text-1">
 <p>
 在现代计算中, 高效处理大量小文件的读写操作是一个关键挑战, 特别是对于 I​/​O 密集型任务.
@@ -311,27 +311,27 @@ The number after <code>-j</code> is arbitrary, but a good rule of thumb is <b>th
 </blockquote>
 
 <p>
-I.e., <a id="orgf7e6297"></a> <span class="underline">对于​<i>可并行的 I​/​O 密集型任务</i>, 使用的​<b>线程数应该超过处理器核心数</b>​.</span>
+I.e., <a id="org9621aa6"></a> <span class="underline">对于​<i>可并行的 I​/​O 密集型任务</i>, 使用的​<b>线程数应该超过处理器核心数</b>​.</span>
 </p>
 
 <p>
-本研究旨在通过实验验证这一<a href="#orgf7e6297">经验法则</a>.
+本研究旨在通过实验验证这一<a href="#org9621aa6">经验法则</a>.
 通过 C++ 调用 OpenMP, 在多种线程配置下执行基准测试, 探究线程数量对大量小文件磁盘 I​/​O 操作性能的影响, 以求取 I​/​O 密集型任务的最佳线程数目, 指导性能优化的实践.
 </p>
 </div>
 </div>
 
-<div id="outline-container-orgdb4ddec" class="outline-2">
-<h2 id="orgdb4ddec"><span class="section-number-2">2.</span> 技术与理论背景</h2>
+<div id="outline-container-org8a5d770" class="outline-2">
+<h2 id="org8a5d770"><span class="section-number-2">2.</span> 技术与理论背景</h2>
 <div class="outline-text-2" id="text-2">
 <p>
 本章节将简要介绍与研究直接相关的技术和理论基础.
-这​<i>可能</i>​从理论上证明<a href="#orgc08d367">引言</a>中<a href="#orgf7e6297">经验法则</a>的正确性, 并指导后续的<a href="#orgd05e236">实验方案的设计</a>.
+这​<i>可能</i>​从理论上证明<a href="#orgb45ab15">引言</a>中<a href="#org9621aa6">经验法则</a>的正确性, 并指导后续的<a href="#orgf02037b">实验方案的设计</a>.
 </p>
 </div>
 
-<div id="outline-container-orgc33d00e" class="outline-3">
-<h3 id="orgc33d00e"><span class="section-number-3">2.1.</span> CPU 与磁盘的性能对比</h3>
+<div id="outline-container-orgfcf414e" class="outline-3">
+<h3 id="orgfcf414e"><span class="section-number-3">2.1.</span> CPU 与磁盘的性能对比</h3>
 <div class="outline-text-3" id="text-2-1">
 <p>
 在处理可并行的 I​/​O 密集型任务时, 理解 CPU 和 磁盘 I​/​O 之间的性能差异至关重要.
@@ -363,8 +363,8 @@ CPU 在处理数据和并行能力上远超磁盘, 导致在 I​/​O 密集型
 </p>
 </div>
 
-<div id="outline-container-org5b221ad" class="outline-4">
-<h4 id="org5b221ad"><span class="section-number-4">2.1.1.</span> 速度与吞吐量</h4>
+<div id="outline-container-org14d88ef" class="outline-4">
+<h4 id="org14d88ef"><span class="section-number-4">2.1.1.</span> 速度与吞吐量</h4>
 <div class="outline-text-4" id="text-2-1-1">
 <p>
 根据本节的对比, 我们将会发现 CPU 的高速运算能力在等待数据传输的过程中无法充分发挥.
@@ -372,7 +372,7 @@ CPU 在处理数据和并行能力上远超磁盘, 导致在 I​/​O 密集型
 </div>
 
 <ol class="org-ol">
-<li><a id="org28e2f12"></a>CPU 性能<br />
+<li><a id="org09217e5"></a>CPU 性能<br />
 <div class="outline-text-5" id="text-2-1-1-1">
 <p>
 现代 CPU 由于其复杂的内部结构 (e.g., 多级缓存, 多核处理器, 和超线程技术), 在处理​<i>计算密集型任务</i>​时表现出色.
@@ -388,7 +388,7 @@ CPU 的数据吞吐量指的是在单位时间内能处理的数据量, 这个�
 </div>
 </li>
 
-<li><a id="org9629079"></a>磁盘性能<br />
+<li><a id="org0f63d2b"></a>磁盘性能<br />
 <div class="outline-text-5" id="text-2-1-1-2">
 <p>
 磁盘 I​/​O 操作的速度远低于 CPU.
@@ -405,8 +405,8 @@ CPU 的数据吞吐量指的是在单位时间内能处理的数据量, 这个�
 </ol>
 </div>
 
-<div id="outline-container-orgaa68d36" class="outline-4">
-<h4 id="orgaa68d36"><span class="section-number-4">2.1.2.</span> 并行处理能力</h4>
+<div id="outline-container-org594fe67" class="outline-4">
+<h4 id="org594fe67"><span class="section-number-4">2.1.2.</span> 并行处理能力</h4>
 <div class="outline-text-4" id="text-2-1-2">
 <p>
 现代 CPU 通过多核设计实现了并行处理能力.
@@ -425,17 +425,17 @@ SSD 使用闪存单元来存储数据, RAID 通过将多个硬盘组合起来, �
 </div>
 </div>
 
-<div id="outline-container-orgbd5de70" class="outline-3">
-<h3 id="orgbd5de70"><span class="section-number-3">2.2.</span> OpenMP 多线程机制</h3>
+<div id="outline-container-orgcb46b9d" class="outline-3">
+<h3 id="orgcb46b9d"><span class="section-number-3">2.2.</span> OpenMP 多线程机制</h3>
 <div class="outline-text-3" id="text-2-2">
 <p>
-通过<a href="#orgc33d00e">上一节</a>的对比, 理论上<a href="#orgf7e6297">经验法则</a>是合理的.
+通过<a href="#orgfcf414e">上一节</a>的对比, 理论上<a href="#org9621aa6">经验法则</a>是合理的.
 然而, 过多的线程可能导致线程上下文切换的开销增加, 从而降低总体性能.
 </p>
 </div>
 
-<div id="outline-container-orgcf7dbb6" class="outline-4">
-<h4 id="orgcf7dbb6"><span class="section-number-4">2.2.1.</span> 并行模式</h4>
+<div id="outline-container-orgf10dc5d" class="outline-4">
+<h4 id="orgf10dc5d"><span class="section-number-4">2.2.1.</span> 并行模式</h4>
 <div class="outline-text-4" id="text-2-2-1">
 <p>
 根据相关文章<sup><a id="fnr.4" class="footref" href="#fn.4" role="doc-backlink">4</a></sup>:
@@ -446,7 +446,7 @@ SSD 使用闪存单元来存储数据, RAID 通过将多个硬盘组合起来, �
 OpenMP 采用 fork-join 的方式进行并行运算:
 </p>
 
-<pre class="example" id="orgec93068">
+<pre class="example" id="orgd64e6f8">
              __    __
             / _ 并 _ \
            / /      \ \
@@ -475,8 +475,8 @@ OpenMP 采用 fork-join 的方式进行并行运算:
 </div>
 </div>
 
-<div id="outline-container-orgad60e2e" class="outline-4">
-<h4 id="orgad60e2e"><span class="section-number-4">2.2.2.</span> 编程模型</h4>
+<div id="outline-container-orga520f70" class="outline-4">
+<h4 id="orga520f70"><span class="section-number-4">2.2.2.</span> 编程模型</h4>
 <div class="outline-text-4" id="text-2-2-2">
 <div class="org-src-container">
 <pre class="src src-C++"><span style="color: #a0132f;">#include</span> <span style="color: #000000;">&lt;</span><span style="color: #2544bb;">omp.h</span><span style="color: #000000;">&gt;</span>
@@ -493,12 +493,12 @@ OpenMP 采用 fork-join 的方式进行并行运算:
 </div>
 </div>
 
-<div id="outline-container-orgcad3eab" class="outline-2">
-<h2 id="orgcad3eab"><span class="section-number-2">3.</span> 实验设计与结果</h2>
+<div id="outline-container-org9afa006" class="outline-2">
+<h2 id="org9afa006"><span class="section-number-2">3.</span> 实验设计与结果</h2>
 <div class="outline-text-2" id="text-3">
 </div>
-<div id="outline-container-org078978a" class="outline-3">
-<h3 id="org078978a"><span class="section-number-3">3.1.</span> 环境配置</h3>
+<div id="outline-container-orgf84db9f" class="outline-3">
+<h3 id="orgf84db9f"><span class="section-number-3">3.1.</span> 环境配置</h3>
 <div class="outline-text-3" id="text-3-1">
 <ul class="org-ul">
 <li>CPU 核心数: \( 5 \)</li>
@@ -509,11 +509,11 @@ OpenMP 采用 fork-join 的方式进行并行运算:
 </div>
 </div>
 
-<div id="outline-container-orgd05e236" class="outline-3">
-<h3 id="orgd05e236"><span class="section-number-3">3.2.</span> 设计思路</h3>
+<div id="outline-container-orgf02037b" class="outline-3">
+<h3 id="orgf02037b"><span class="section-number-3">3.2.</span> 设计思路</h3>
 <div class="outline-text-3" id="text-3-2">
 <ol class="org-ol">
-<li>执行 <code>sudo bash -c 'echo 3 &gt; /proc/sys/vm/drop_caches'</code> Linux 针对文件系统提供的 buffer.</li>
+<li>执行 <code>sudo bash -c 'echo 3 &gt; /proc/sys/vm/drop_caches'</code> 以清理 Linux 针对文件系统提供的 buffer.</li>
 <li>向磁盘并行地写入 <code>MY_NUM_FILES</code> 个小文件.</li>
 <li>清理 buffer; 从磁盘并行地读入 <code>MY_NUM_FILES</code> 个小文件</li>
 <li>清理 buffer; 从磁盘并行地读入 0.5x​<code>MY_NUM_FILES</code> 个小文件, 同时并行地写入 0.5x​<code>MY_NUM_FILES</code> 个小文件.</li>
@@ -524,7 +524,7 @@ OpenMP 采用 fork-join 的方式进行并行运算:
 该变量的值越大, 每个线程在打开文件之后执行的运算量越大.
 </p>
 
-<pre class="example" id="orgabafefa">
+<pre class="example" id="org3490f17">
 ./
  |__ Num_Threads_IO_Intensive.{org,html,pdf}  (one of which is this file)
  |
@@ -561,8 +561,8 @@ make clean
 </div>
 </div>
 
-<div id="outline-container-orgb98b402" class="outline-3">
-<h3 id="orgb98b402"><span class="section-number-3">3.3.</span> 代码</h3>
+<div id="outline-container-org5206c17" class="outline-3">
+<h3 id="org5206c17"><span class="section-number-3">3.3.</span> 代码</h3>
 <div class="outline-text-3" id="text-3-3">
 <div class="org-src-container">
 <label class="org-src-name"><span class="listing-number">&#20195;&#30721;1&nbsp; </span><code>./GNUmakefile</code></label><pre class="src src-makefile-gmake"><span style="color: #721045;">.SILENT</span>:
@@ -711,8 +711,8 @@ make clean
 </div>
 </div>
 
-<div id="outline-container-org663c8f1" class="outline-3">
-<h3 id="org663c8f1"><span class="section-number-3">3.4.</span> 测试</h3>
+<div id="outline-container-orgc584ec8" class="outline-3">
+<h3 id="orgc584ec8"><span class="section-number-3">3.4.</span> 测试</h3>
 <div class="outline-text-3" id="text-3-4">
 <div class="org-src-container">
 <pre class="src src-bash"><span style="color: #00538b;">MY_NUM_THREADS</span>=9  <span style="color: #2544bb;">\</span>
@@ -811,17 +811,17 @@ make clean
 </div>
 </div>
 
-<div id="outline-container-orga4f1555" class="outline-2">
-<h2 id="orga4f1555"><span class="section-number-2">4.</span> 数据分析</h2>
+<div id="outline-container-org0a70bea" class="outline-2">
+<h2 id="org0a70bea"><span class="section-number-2">4.</span> 数据分析</h2>
 <div class="outline-text-2" id="text-4">
 <p>
-第<a href="#org663c8f1">3.4</a>节中的测试结果为多次实验的中位数.
+第<a href="#orgc584ec8">3.4</a>节中的测试结果为多次实验的中位数.
 其中的每一行以 <code>线程数 平均写时间 平均读时间 平均读写时间</code> 的形式展示了不同线程数下程序的耗时 (单位: 微秒).
 </p>
 </div>
 
-<div id="outline-container-orgc140d82" class="outline-3">
-<h3 id="orgc140d82"><span class="section-number-3">4.1.</span> 性能上升区间</h3>
+<div id="outline-container-org6b472a6" class="outline-3">
+<h3 id="org6b472a6"><span class="section-number-3">4.1.</span> 性能上升区间</h3>
 <div class="outline-text-3" id="text-4-1">
 <p>
 当测试的线程数从 \( 1 \) 增加到 \( 5 \), 也就是 \[
@@ -842,8 +842,8 @@ E.g., \( T_{\text{num_threads}=2} \gt \frac12 \cdot T_{\text{num_threads}=1} \),
 </div>
 </div>
 
-<div id="outline-container-orgec8790b" class="outline-3">
-<h3 id="orgec8790b"><span class="section-number-3">4.2.</span> 最佳线程数</h3>
+<div id="outline-container-org445d11a" class="outline-3">
+<h3 id="org445d11a"><span class="section-number-3">4.2.</span> 最佳线程数</h3>
 <div class="outline-text-3" id="text-4-2">
 <p>
 当 \[
@@ -868,8 +868,8 @@ P_{\text{num_threads=5}} \lt P_{\text{num_threads=6}} \approx P_{\text{num_threa
 </div>
 </div>
 
-<div id="outline-container-org570cc68" class="outline-3">
-<h3 id="org570cc68"><span class="section-number-3">4.3.</span> 归因分析</h3>
+<div id="outline-container-org1cb6cfd" class="outline-3">
+<h3 id="org1cb6cfd"><span class="section-number-3">4.3.</span> 归因分析</h3>
 <div class="outline-text-3" id="text-4-3">
 <p>
 线程数略高于核心数时, 程序能占满 CPU 的各核心; <br />
@@ -883,11 +883,11 @@ P_{\text{num_threads=5}} \lt P_{\text{num_threads=6}} \approx P_{\text{num_threa
 </div>
 </div>
 
-<div id="outline-container-org968203a" class="outline-2">
-<h2 id="org968203a"><span class="section-number-2">5.</span> 结论与建议</h2>
+<div id="outline-container-orgec29a4d" class="outline-2">
+<h2 id="orgec29a4d"><span class="section-number-2">5.</span> 结论与建议</h2>
 <div class="outline-text-2" id="text-5">
 <p>
-根据第<a href="#orgec8790b">4.2</a>节的趋势分析, 线程数略高于核心数时就是性能峰值.
+根据第<a href="#org445d11a">4.2</a>节的趋势分析, 线程数略高于核心数时就是性能峰值.
 保守起见, 本文建议使用 \( \text{核心数} + 1 \).
 </p>
 
@@ -905,8 +905,8 @@ P_{\text{num_threads=5}} \lt P_{\text{num_threads=6}} \approx P_{\text{num_threa
 </p>
 </div>
 
-<div id="outline-container-orgf53ef17" class="outline-3">
-<h3 id="orgf53ef17"><span class="section-number-3">5.1.</span> 经验法则的适用性</h3>
+<div id="outline-container-orgbc6c438" class="outline-3">
+<h3 id="orgbc6c438"><span class="section-number-3">5.1.</span> 经验法则的适用性</h3>
 <div class="outline-text-3" id="text-5-1">
 <p>
 本文讨论的是可并行化的程序, 这适用于绝大多数的 <code>Makefile</code>.
@@ -914,13 +914,13 @@ P_{\text{num_threads=5}} \lt P_{\text{num_threads=6}} \approx P_{\text{num_threa
 </p>
 
 <p>
-如果程序不是 I​/​O 密集型的, 那么性能瓶颈很可能也在磁盘这边, 则<a href="#orgf7e6297">该经验法则</a>也就无法提供可观的收益.
+如果程序不是 I​/​O 密集型的, 那么性能瓶颈很可能也在磁盘这边, 则<a href="#org9621aa6">该经验法则</a>也就无法提供可观的收益.
 </p>
 </div>
 </div>
 
-<div id="outline-container-org9ede500" class="outline-3">
-<h3 id="org9ede500"><span class="section-number-3">5.2.</span> 实验的局限性</h3>
+<div id="outline-container-org3dfefbb" class="outline-3">
+<h3 id="org3dfefbb"><span class="section-number-3">5.2.</span> 实验的局限性</h3>
 <div class="outline-text-3" id="text-5-2">
 <p>
 本实验采用了低性能的 HDD 而不是高性能的 SSD, 放大了 CPU 性能与磁盘 I​/​O 之间的差距, 从而提高了增加线程数目带来的性能增益.
@@ -943,7 +943,7 @@ P_{\text{num_threads=5}} \lt P_{\text{num_threads=6}} \approx P_{\text{num_threa
 
 <div class="footdef"><sup><a id="fn.3" class="footnum" href="#fnr.3" role="doc-backlink">3</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara"><a href="https://storagereview.com">StorageReview</a>: <a href="https://www.storagereview.com/ssd-vs-hdd">SSD vs HDD</a></p></div></div>
 
-<div class="footdef"><sup><a id="fn.4" class="footnum" href="#fnr.4" role="doc-backlink">4</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara"><a href="https://github.com/shynur"><code>shynur</code></a>: <a href="https://shynur.github.io/CheatSheets/OpenMP.html">简明 OpenMP: C/C++ 并行计算</a></p></div></div>
+<div class="footdef"><sup><a id="fn.4" class="footnum" href="#fnr.4" role="doc-backlink">4</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara"><a href="https://github.com/shynur"><code>shynur</code></a>: <a href="https://shynur.github.io/CheatSheets/OpenMP">简明 OpenMP: C/C++ 并行计算</a></p></div></div>
 
 <div class="footdef"><sup><a id="fn.5" class="footnum" href="#fnr.5" role="doc-backlink">5</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">核心数.</p></div></div>
 
@@ -952,7 +952,7 @@ P_{\text{num_threads=5}} \lt P_{\text{num_threads=6}} \approx P_{\text{num_threa
 </div></div>
 <div id="postamble" class="status">
 <p class="author">&#20316;&#32773;: <a href="https://github.com/shynur"><i>谢骐</i></a></p>
-<p class="date">Created: 2023-12-16 周六 21:29</p>
+<p class="date">Created: 2023-12-16 周六 21:41</p>
 <p class="validation"><a href="https://validator.w3.org/check?uri=referer">Validate</a></p>
 </div>
 </body>
